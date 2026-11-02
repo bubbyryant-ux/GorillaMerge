@@ -28,14 +28,13 @@ copied into the mod. Without Minecraft installed, the blocks show up as plain co
 | **X** | Your inventory (2x2 crafting). In menus: point and pull the trigger to pick up / put down, grip for half a stack, B or Y to close. |
 | Touch **Menu** above your left hand with your right finger | Inventory, worlds, Survival/Creative, building on/off, new world. |
 | Walk into the **purple portal** | Back to Gorilla Tag from the Minecraft world. |
-
-Desktop: middle mouse or F6 places, hold F7 mines, `[` `]` change slot, E inventory,
-F8 opens the menu, F9 teleports to the world and back.
-
 | Hold a **bow** and hold the right trigger, let go | Shoots an arrow (needs arrows; a full draw takes 1 second). Walk over your arrows to pick them back up. |
 | Right trigger with **armor** | Puts it on (or drag it into the armor slots in your inventory). |
 | **Hoe** on grass/dirt, then **seeds** on the farmland | Plants wheat. It grows in about 6 minutes; **bone meal** speeds it up. Make bread from 3 wheat. |
 | **Shears** pointed at a sheep | Shears it for wool. |
+
+Desktop: middle mouse or F6 places, hold F7 mines, `[` `]` change slot, E inventory,
+F8 opens the menu, F9 teleports to the world and back.
 
 The hotbar, armor, hearts and hunger float low in your view (HudScale / HudAngle in the settings).
 
