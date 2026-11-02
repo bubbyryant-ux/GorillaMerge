@@ -1,0 +1,19 @@
+# Build output
+bin/
+obj/
+
+# Editors
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Never commit game files: Minecraft's and Gorilla Tag's files stay on each player's own PC,
+# and packs made from other games with tools/make_pack.py are those games' property.
+*.jar
+*.dll
+*.pdb
+Packs/*/
+!Packs/Minecraft/
+autotest/

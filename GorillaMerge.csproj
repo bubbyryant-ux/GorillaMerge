@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    GorillaMerge: puts other games INTO Gorilla Tag (BepInEx 5, Mono).
+    Minecraft is the first "game pack"; more games plug in as packs (see Packs/ and tools/make_pack.py).
+
+    Build:   dotnet build -c Release
+    Override game path:  dotnet build -c Release -p:GameDir="D:\Steam\steamapps\common\Gorilla Tag"
+    After a build the DLL and the Packs folder are copied to <GameDir>\BepInEx\plugins\GorillaMerge\.
+    Delete that folder to uninstall.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>GorillaMerge</AssemblyName>
+    <RootNamespace>GorillaMerge</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <DebugType>portable</DebugType>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Gorilla Tag</GameDir>
+    <ManagedDir>$(GameDir)\Gorilla Tag_Data\Managed</ManagedDir>
+    <InstallDir>$(GameDir)\BepInEx\plugins\GorillaMerge</InstallDir>
+    <NoWarn>$(NoWarn);CS1591;CS0618;MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx"><HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(GameDir)\BepInEx\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Utilla"><HintPath>$(GameDir)\BepInEx\plugins\Utilla\Utilla.dll</HintPath><Private>false</Private></Reference>
+
+    <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(ManagedDir)\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.InputSystem"><HintPath>$(ManagedDir)\Unity.InputSystem.dll</HintPath><Private>false</Private></Reference>
+
+    <Reference Include="UnityEngine"><HintPath>$(ManagedDir)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ManagedDir)\UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(ManagedDir)\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(ManagedDir)\UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AudioModule"><HintPath>$(ManagedDir)\UnityEngine.AudioModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule"><HintPath>$(ManagedDir)\UnityEngine.UnityWebRequestModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UnityWebRequestAudioModule"><HintPath>$(ManagedDir)\UnityEngine.UnityWebRequestAudioModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.XRModule"><HintPath>$(ManagedDir)\UnityEngine.XRModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ScreenCaptureModule" Condition="Exists('$(ManagedDir)\UnityEngine.ScreenCaptureModule.dll')"><HintPath>$(ManagedDir)\UnityEngine.ScreenCaptureModule.dll</HintPath><Private>false</Private></Reference>
+
+    <Reference Include="PhotonUnityNetworking"><HintPath>$(ManagedDir)\PhotonUnityNetworking.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="PhotonRealtime"><HintPath>$(ManagedDir)\PhotonRealtime.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Photon3Unity3D"><HintPath>$(ManagedDir)\Photon3Unity3D.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Packs\**\*" />
+  </ItemGroup>
+
+  <Target Name="InstallToGame" AfterTargets="Build" Condition="Exists('$(GameDir)\BepInEx\plugins')">
+    <ItemGroup>
+      <PackFiles Include="Packs\**\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(InstallDir)" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(InstallDir)" ContinueOnError="true" />
+    <Copy SourceFiles="@(PackFiles)" DestinationFiles="@(PackFiles->'$(InstallDir)\Packs\%(RecursiveDir)%(Filename)%(Extension)')" ContinueOnError="true" />
+    <Message Importance="high" Text="GorillaMerge: installed to $(InstallDir)" />
+  </Target>
+
+</Project>
