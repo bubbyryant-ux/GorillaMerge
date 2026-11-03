@@ -6,8 +6,8 @@
 
     Build:   dotnet build -c Release
     Override game path:  dotnet build -c Release -p:GameDir="D:\Steam\steamapps\common\Gorilla Tag"
-    After a build the DLL and the Packs folder are copied to <GameDir>\BepInEx\plugins\GorillaMerge\.
-    Delete that folder to uninstall.
+    After a build GorillaMerge.dll is copied to <GameDir>\BepInEx\plugins\GorillaMerge\. The Minecraft pack and the
+    license are built into the DLL, so that one file is the whole mod. Delete that folder to uninstall.
   -->
 
   <PropertyGroup>
@@ -57,13 +57,17 @@
     <None Include="Packs\**\*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Packs\Minecraft\pack.json" LogicalName="GorillaMerge.Packs.Minecraft.pack.json" />
+    <EmbeddedResource Include="LICENSE" LogicalName="GorillaMerge.LICENSE" />
+  </ItemGroup>
+
   <Target Name="InstallToGame" AfterTargets="Build" Condition="Exists('$(GameDir)\BepInEx\plugins')">
-    <ItemGroup>
-      <PackFiles Include="Packs\**\*" />
-    </ItemGroup>
     <MakeDir Directories="$(InstallDir)" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(InstallDir)" ContinueOnError="true" />
-    <Copy SourceFiles="@(PackFiles)" DestinationFiles="@(PackFiles->'$(InstallDir)\Packs\%(RecursiveDir)%(Filename)%(Extension)')" ContinueOnError="true" />
+    <!-- Older builds copied the Minecraft pack next to the DLL; it's built in now, so remove those copies. -->
+    <Delete Files="$(InstallDir)\Packs\Minecraft\pack.json;$(InstallDir)\Packs\README.md" ContinueOnError="true" />
+    <RemoveDir Directories="$(InstallDir)\Packs\Minecraft" Condition="!Exists('$(InstallDir)\Packs\Minecraft\pack.json')" ContinueOnError="true" />
     <Message Importance="high" Text="GorillaMerge: installed to $(InstallDir)" />
   </Target>
 

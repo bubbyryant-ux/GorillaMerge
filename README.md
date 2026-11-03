@@ -74,7 +74,9 @@ Your builds and the Minecraft world are saved in `BepInEx\config\GorillaMerge\`.
 
 ## Other games (packs)
 
-Each game is a folder in `BepInEx\plugins\GorillaMerge\Packs\` with a `pack.json`.
+The Minecraft pack is built into `GorillaMerge.dll`. Other games are folders in
+`BepInEx\plugins\GorillaMerge\Packs\`, each with a `pack.json` (make the `Packs` folder yourself).
+A `Packs\Minecraft` folder replaces the built-in Minecraft pack, for tinkering with it.
 See [Packs/README.md](Packs/README.md) for the format.
 
 The easy way is the pack maker:
@@ -95,8 +97,8 @@ only use files you can see in File Explorer.
 dotnet build -c Release
 ```
 
-This copies `GorillaMerge.dll` and the `Packs` folder into Gorilla Tag's `BepInEx\plugins\GorillaMerge`.
-Delete that folder to uninstall.
+This copies `GorillaMerge.dll` into Gorilla Tag's `BepInEx\plugins\GorillaMerge`. That one file is the
+whole mod: the Minecraft pack and the license are built into it. Delete that folder to uninstall.
 
 Note: Utilla 1.6.27 (the modded-lobby library) crashes while loading on the late-October 2026 game
 update, so its "game ready" event never fires. GorillaMerge starts on its own and also checks for

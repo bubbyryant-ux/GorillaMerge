@@ -45,6 +45,7 @@ namespace GorillaMerge
         public ConfigEntry<float> WorldHeightOffset;
         public ConfigEntry<bool> ShowWristInPublic;
         public ConfigEntry<bool> AutoTest;
+        public ConfigEntry<bool> PhotoShots;
         public ConfigEntry<string> GameMode;
         public ConfigEntry<int> RenderDistance;
         public ConfigEntry<float> DayLength;
@@ -104,6 +105,8 @@ namespace GorillaMerge
 
             AutoTest = Config.Bind("Debug", "AutoTest", false,
                 "Developer self-test: goes offline, visits the worlds and saves screenshots. Leave off.");
+            PhotoShots = Config.Bind("Debug", "PhotoShots", false,
+                "Developer: builds a scene in a throwaway world and saves 4K pictures for the mod's page into config\\GorillaMerge\\photos, then turns itself off.");
 
             Log.LogInfo($"{ModInfo.Name} v{ModInfo.Version} loaded.");
             // Utilla 1.6.27 crashes while loading on the Oct 2026 game update, so its GameInitialized
@@ -180,6 +183,6 @@ namespace GorillaMerge
     {
         public const string Guid = "dev.gorillamerge.gorillatag";
         public const string Name = "GorillaMerge";
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
     }
 }

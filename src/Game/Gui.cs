@@ -205,6 +205,12 @@ namespace GorillaMerge
             _secWas = ip != null && (ip.leftControllerSecondaryButton || ip.rightControllerSecondaryButton);
         }
 
+        /// <summary>Photo mode only: lay a recipe out in the crafting grid.</summary>
+        internal void PreviewGrid(params ItemStack[] grid)
+        {
+            for (int i = 0; i < 9; i++) _grid[i] = i < grid.Length ? grid[i] : ItemStack.None;
+        }
+
         public void Close()
         {
             if (!Open) return;

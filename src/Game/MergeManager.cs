@@ -95,6 +95,7 @@ namespace GorillaMerge
                 yield break;
             }
             if (Plugin.Instance.AutoTest.Value) StartCoroutine(AutoTest());
+            else if (Plugin.Instance.PhotoShots.Value) StartCoroutine(PhotoMode());
         }
 
         private void Init()
@@ -218,7 +219,7 @@ namespace GorillaMerge
             // Hands.
             var items = ActiveItems;
             int sel = Selected;
-            bool canBuild = allowed && BuildMode && world != null && (Survival || (items != null && items.Count > 0));
+            bool canBuild = allowed && BuildMode && !_photoMode && world != null && (Survival || (items != null && items.Count > 0));
             if (canBuild)
             {
                 var selected = items != null && items.Count > 0 ? items[Mathf.Clamp(sel, 0, items.Count - 1)] : null;
@@ -232,13 +233,13 @@ namespace GorillaMerge
             {
                 if (InPackWorld) Player.Tick(dt, world);
                 foreach (var map in _furnaces.Values) foreach (var f in map.Values) f.Tick(dt);
-                if (InPackWorld && Plugin.Instance.Mobs.Value && _mobs.TryGetValue(CurrentPack, out var defs) && !Player.Dead) _spawner.Tick(this, world, defs, Daylight);
+                if (InPackWorld && Plugin.Instance.Mobs.Value && !_photoMode && _mobs.TryGetValue(CurrentPack, out var defs) && !Player.Dead) _spawner.Tick(this, world, defs, Daylight);
             }
             if ((!allowed || !InPackWorld || !Survival) && Mob.Live.Count > 0)
                 foreach (var m in new List<Mob>(Mob.Live)) Destroy(m.gameObject);
 
             // The item in your hand, and crops growing.
-            if (allowed && BuildMode && !Gui.Open && !(Player != null && Player.Dead))
+            if (allowed && BuildMode && !_photoMode && !Gui.Open && !(Player != null && Player.Dead))
             {
                 ItemDef heldItem = Survival ? Player.Inv.Held.Item : (items != null && items.Count > 0 ? Items.ForBlock(items[Mathf.Clamp(sel, 0, items.Count - 1)]) : null);
                 _held.Tick(this, heldItem, InPackWorld ? LightAt(world, gp.GetHandPosition(Plugin.Instance.SwapHands.Value)) : 1f);
@@ -250,8 +251,9 @@ namespace GorillaMerge
             Gui.Tick(this);
             var mode = allowed ? WristUI.Mode.Build
                 : Plugin.InRoom && Plugin.Instance.ShowWristInPublic.Value ? WristUI.Mode.PublicNotice : WristUI.Mode.Hidden;
+            if (_photoMode) mode = WristUI.Mode.Hidden;
             _ui.Tick(this, mode, items, sel);
-            if (allowed && BuildMode && !Gui.Open) Hud.Tick(Survival, Player, items, sel);
+            if (allowed && BuildMode && !Gui.Open && (!_photoMode || _photoHud)) Hud.Tick(Survival, Player, items, sel);
             else Hud.Hide();
 
             if (allowed)
@@ -1176,19 +1178,333 @@ namespace GorillaMerge
             yield return new WaitForSeconds(3f);
             yield return Shot("8_back_home");
             Plugin.Log.LogInfo($"AUTOTEST stats: chunks={w.ChunkCount} columns={w.LoadedColumns} recipes={Recipes.Crafting.Count} items={Items.All.Count}");
-            // Throw away everything the test made, so real play starts with an empty inventory and a fresh world.
+            ThrowAwayTestWorld(pack, w);
+            Plugin.Log.LogInfo("AUTOTEST cleaned up its world and items");
+            Plugin.Log.LogInfo("AUTOTEST done");
+        }
+
+        /// <summary>Throws away everything a test made and puts your real save back.</summary>
+        private void ThrowAwayTestWorld(Pack pack, VoxelWorld w)
+        {
             w.Destroy();
             _voxelWorlds.Remove(pack);
             _voxelReady.Remove(pack);
             _players.Remove(pack);
             _furnaces.Remove(pack.Id);
-            if (_skies.TryGetValue(pack, out var testSky)) { testSky.SetVisible(false); _skies.Remove(pack); }
+            if (_skies.TryGetValue(pack, out var testSky)) { testSky.Destroy(); _skies.Remove(pack); }
             foreach (var f in new[] { pack.Id + "_world.gmw", pack.Id + "_player.json", "furnaces.json" })
                 try { File.Delete(Path.Combine(SaveDir, f)); } catch { }
             RestoreRealSave();
             _saveAt = Time.time + 60f;
-            Plugin.Log.LogInfo("AUTOTEST cleaned up its world and items");
-            Plugin.Log.LogInfo("AUTOTEST done");
+        }
+
+        // ---------- Developer photo mode (pictures for the mod's page) ----------
+
+        private static string PhotoDir => Path.Combine(SaveDir, "photos");
+        private bool _photoMode, _photoHud;
+        private List<Renderer> _hiddenRig;
+
+        /// <summary>Hides your own gorilla (and its hat) so a camera inside your head sees past it.</summary>
+        private void HideRig(bool hide)
+        {
+            if (hide && _hiddenRig == null && VRRig.LocalRig != null)
+            {
+                _hiddenRig = VRRig.LocalRig.GetComponentsInChildren<Renderer>().Where(r => r.enabled).ToList();
+                foreach (var r in _hiddenRig) r.enabled = false;
+            }
+            else if (!hide && _hiddenRig != null)
+            {
+                foreach (var r in _hiddenRig) if (r != null) r.enabled = true;
+                _hiddenRig = null;
+            }
+        }
+
+        /// <summary>A picture from any spot, rendered at 4K so it can be shrunk smooth later.</summary>
+        private IEnumerator CamShot(string name, Vector3 pos, Vector3 lookAt, float fov = 70f, bool showGorilla = true)
+        {
+            yield return new WaitForEndOfFrame();
+            var main = GTPlayer.Instance.mainCamera;
+            var go = new GameObject("GM_PhotoCam");
+            var cam = go.AddComponent<Camera>();
+            cam.CopyFrom(main);
+            cam.enabled = false;
+            cam.stereoTargetEye = StereoTargetEyeMask.None;
+            cam.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(lookAt - pos, Vector3.up));
+            cam.fieldOfView = fov;
+            int mirror = LayerMask.NameToLayer("MirrorOnly");
+            if (showGorilla && mirror >= 0) cam.cullingMask |= 1 << mirror;
+            HideRig(!showGorilla);
+            yield return Render(cam, name, 3840, 2160);
+            HideRig(false);
+            Destroy(go);
+        }
+
+        /// <summary>What you see in the headset (HUD and menus included), at 4K.</summary>
+        private IEnumerator HeadShot(string name)
+        {
+            yield return new WaitForEndOfFrame();
+            HideRig(true);
+            yield return Render(GTPlayer.Instance.mainCamera, name, 3840, 2160);
+            HideRig(false);
+        }
+
+        private IEnumerator Render(Camera cam, string name, int width, int height)
+        {
+            var rt = RenderTexture.GetTemporary(width, height, 24);
+            var prev = cam.targetTexture;
+            float aspect = cam.aspect;
+            cam.targetTexture = rt;
+            cam.aspect = width / (float)height;
+            try { cam.Render(); } catch (Exception ex) { Plugin.Log.LogWarning("Photo render failed: " + ex.Message); }
+            cam.targetTexture = prev;
+            cam.aspect = aspect;
+            if (prev == null) cam.ResetAspect();
+            var active = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = active;
+            RenderTexture.ReleaseTemporary(rt);
+            File.WriteAllBytes(Path.Combine(PhotoDir, name + ".png"), tex.EncodeToPNG());
+            Destroy(tex);
+            Plugin.Log.LogInfo("PHOTOS shot " + name);
+            yield return null;
+        }
+
+        /// <summary>
+        /// Builds a little scene in a fresh test world (a house, a farm, torches, mobs) and photographs it from
+        /// several angles and times of day into BepInEx\config\GorillaMerge\photos. Your real save is set aside first.
+        /// </summary>
+        private IEnumerator PhotoMode()
+        {
+            Directory.CreateDirectory(PhotoDir);
+            foreach (var old in Directory.GetFiles(PhotoDir, "*.png")) File.Delete(old);
+            Plugin.Log.LogInfo("PHOTOS start");
+            RestoreRealSave();
+            StashRealSave();
+            int oldRadius = Plugin.Instance.RenderDistance.Value;
+            Plugin.Instance.RenderDistance.Value = 10;
+            _photoMode = true;
+            yield return new WaitForSeconds(4f);
+            if (Plugin.InRoom)
+            {
+                GoOffline();
+                float until = Time.time + 20f;
+                while (Plugin.InRoom && Time.time < until) yield return null;
+                yield return new WaitForSeconds(2f);
+            }
+            var pack = VoxelPacks.Count > 0 ? VoxelPacks[0] : null;
+            if (pack != null)
+            {
+                float t0 = Time.time;
+                Travel(pack);
+                while (CurrentPack != pack && Time.time - t0 < 30f) yield return null;
+            }
+            if (pack == null || CurrentPack != pack) { _photoMode = false; Plugin.Instance.RenderDistance.Value = oldRadius; RestoreRealSave(); yield break; }
+
+            var w = ActiveWorld;
+            var gp = GTPlayer.Instance;
+            float s = w.S;
+            var sp = w.SpawnBlock;
+            int Top(int x, int z) => w.TopSolid(x, z, TerrainGen.Height - 1, 0);
+            Vector3 Feet(int x, int z) => w.Corner(new Vector3Int(x, Top(x, z) + 1, z)) + new Vector3(s / 2, 0, s / 2);
+            ushort B(string id) => pack.Block(id)?.Index ?? (ushort)0;
+            void Put(int x, int y, int z, string id) => w.Set(new Vector3Int(x, y, z), B(id));
+            void Give(string id, int n) { var d = Items.Local(pack, id); if (d != null && Player != null) Player.Inv.Add(d, n); }
+            w.TimeOfDay = 0.3f;
+
+            // Let the far terrain fill in for the landscape pictures.
+            float tGen = Time.time;
+            yield return new WaitForSeconds(3f);
+            while (Time.time - tGen < 60f && (w.PendingJobs > 0 || w.LoadedColumns < 280)) yield return null;
+            Plugin.Log.LogInfo($"PHOTOS terrain: {w.LoadedColumns} columns, spawn {sp}");
+
+            // Layout (in blocks from spawn): the portal stands at x+4..x+7, z-2, so everything goes west of spawn.
+            // A house at x-9..x-5 with its door facing east, a wheat farm north of it, the gorilla in front of the door.
+            void ClearPlants(int cx, int cz, int r)
+            {
+                for (int x = cx - r; x <= cx + r; x++)
+                    for (int z = cz - r; z <= cz + r; z++)
+                    {
+                        int t = Top(x, z);
+                        if (t == int.MinValue) continue;
+                        for (int y = t + 1; y <= t + 2; y++)
+                        {
+                            var d = w.Def(new Vector3Int(x, y, z));
+                            if (d.Render == RenderKind.Plant && d.Special != "crop") Put(x, y, z, "air");
+                        }
+                    }
+            }
+
+            // A little house: cobblestone floor, plank walls, log corners, glass windows, an open door, a peaked roof.
+            int hx = sp.x - 9, hz = sp.z - 2;
+            int y0 = Top(hx + 2, hz + 2);
+            for (int x = -1; x <= 5; x++)
+                for (int z = -1; z <= 5; z++)
+                {
+                    int cx = hx + x, cz = hz + z, t = Top(cx, cz);
+                    for (int y = t + 1; y < y0; y++) Put(cx, y, cz, "dirt");
+                    for (int y = Mathf.Max(y0, t + 1); y <= y0 + 10; y++) Put(cx, y, cz, "air");
+                    if (x >= 0 && x <= 4 && z >= 0 && z <= 4) Put(cx, y0, cz, "cobblestone");
+                    else if (t < y0) Put(cx, y0, cz, "grass_block");
+                }
+            for (int x = 0; x <= 4; x++)
+                for (int z = 0; z <= 4; z++)
+                {
+                    bool edgeX = x == 0 || x == 4, edgeZ = z == 0 || z == 4;
+                    if (!edgeX && !edgeZ) continue;
+                    for (int y = 1; y <= 3; y++) Put(hx + x, y0 + y, hz + z, edgeX && edgeZ ? "oak_log" : "oak_planks");
+                }
+            Put(hx + 4, y0 + 1, hz + 2, "air"); Put(hx + 4, y0 + 2, hz + 2, "air");         // door, facing east
+            Put(hx + 4, y0 + 2, hz + 1, "glass"); Put(hx + 4, y0 + 2, hz + 3, "glass");
+            Put(hx + 2, y0 + 2, hz, "glass"); Put(hx + 2, y0 + 2, hz + 4, "glass"); Put(hx, y0 + 2, hz + 2, "glass");
+            for (int layer = 0; layer < 4; layer++)
+                for (int x = -1 + layer; x <= 5 - layer; x++)
+                    for (int z = -1 + layer; z <= 5 - layer; z++)
+                        if (layer == 3 || x == -1 + layer || x == 5 - layer || z == -1 + layer || z == 5 - layer || layer == 0)
+                            Put(hx + x, y0 + 4 + layer, hz + z, layer == 0 ? "oak_planks" : "stone_bricks");
+            Put(hx + 1, y0 + 1, hz + 1, "crafting_table");
+            Put(hx + 1, y0 + 1, hz + 3, "furnace");
+            Put(hx + 2, y0 + 1, hz + 2, "torch");
+            Put(hx + 5, y0 + 1, hz + 1, "torch");
+            Put(hx + 5, y0 + 1, hz + 3, "torch");
+
+            // A wheat farm with a water channel, north of the house.
+            for (int x = 0; x < 9; x++)
+                for (int z = 0; z < 5; z++)
+                {
+                    int fx = hx - 1 + x, fz = hz + 7 + z, ft = Top(fx, fz);
+                    if (ft == int.MinValue) continue;
+                    for (int y = ft + 1; y <= ft + 4; y++) Put(fx, y, fz, "air");
+                    if (z == 2) { Put(fx, ft, fz, "water"); continue; }
+                    Put(fx, ft, fz, "farmland");
+                    Put(fx, ft + 1, fz, "wheat_stage" + (x % 4 == 1 ? 5 : x % 3 == 2 ? 6 : 7));
+                }
+            ClearPlants(sp.x - 4, sp.z + 2, 9);
+            // The spawn portal is in the way of the best angles; this world is thrown away afterwards anyway.
+            for (int x = sp.x + 1; x <= sp.x + 11; x++)
+                for (int z = sp.z - 5; z <= sp.z + 1; z++)
+                    for (int y = sp.y - 6; y <= sp.y + 14; y++)
+                    {
+                        var d = w.Def(new Vector3Int(x, y, z));
+                        if (d.IsPortal || d.LocalId == "obsidian") Put(x, y, z, "air");
+                    }
+
+            // The gorilla stands in front of the door, facing east (towards the cameras).
+            var gorillaFeet = Feet(sp.x - 2, sp.z);
+            gp.TeleportTo(gorillaFeet + Vector3.up * 0.9f, Quaternion.LookRotation(Vector3.right), false, true);
+            Give("iron_pickaxe", 1); Give("diamond_sword", 1); Give("oak_planks", 48); Give("cobblestone", 40);
+            Give("torch", 16); Give("bread", 8); Give("bow", 1); Give("arrow", 24); Give("crafting_table", 1);
+            var chest = Items.Local(pack, "iron_chestplate"); var helmet = Items.Local(pack, "iron_helmet");
+            if (chest != null) Player.Inv.Armor[1] = new ItemStack(chest, 1);
+            if (helmet != null) Player.Inv.Armor[0] = new ItemStack(helmet, 1);
+            yield return new WaitForSeconds(4f);
+
+            var houseCenter = w.Center(new Vector3Int(hx + 2, y0 + 2, hz + 2));
+            var scene = Vector3.Lerp(gorillaFeet + Vector3.up * 0.6f, houseCenter, 0.5f);
+            var gorillaChest = gorillaFeet + Vector3.up * 0.55f;
+
+            // 1. The gorilla, the house and the farm in the daytime, from the east.
+            w.TimeOfDay = 0.3f;
+            yield return new WaitForSeconds(3f);
+            foreach (float a in new[] { -40f, -15f, 15f, 40f })
+            {
+                var dir = Quaternion.Euler(0, a, 0) * Vector3.right;
+                yield return CamShot($"day_scene_{a:+0;-0}", scene + dir * 5.5f + Vector3.up * 1.6f, scene, 65f);
+            }
+            // Close-ups of the gorilla with the house behind it.
+            foreach (float a in new[] { -25f, 20f })
+            {
+                var dir = Quaternion.Euler(0, a, 0) * Vector3.right;
+                yield return CamShot($"day_gorilla_{a:+0;-0}", gorillaChest + dir * 2.2f + Vector3.up * 0.35f, gorillaChest + Vector3.left * 0.6f + Vector3.up * 0.25f, 60f);
+            }
+
+            // 2. Sunset behind the house (the sun sets in the west).
+            w.TimeOfDay = 0.483f;
+            yield return new WaitForSeconds(5f);
+            foreach (float a in new[] { -45f, -30f })
+            {
+                var dir = Quaternion.Euler(0, a, 0) * Vector3.right;
+                yield return CamShot($"sunset_scene_{a:+0;-0}", scene + dir * 5.5f + Vector3.up * 1.2f, scene + Vector3.up * 1.4f, 68f);
+            }
+            yield return CamShot("sunset_gorilla_side", gorillaChest + Quaternion.Euler(0, -25f, 0) * Vector3.right * 2.3f + Vector3.up * 0.2f, gorillaChest + Vector3.left * 0.6f + Vector3.up * 0.5f, 62f);
+            yield return CamShot("sunset_gorilla", gorillaChest + Vector3.right * 2.3f + Vector3.up * 0.2f, gorillaChest + Vector3.left * 0.6f + Vector3.up * 0.5f, 62f);
+
+            // 3. Landscapes from up high: the sunset, and the daytime world.
+            var high = gorillaFeet + Vector3.up * 14f;
+            yield return CamShot("sunset_landscape_west", high + Vector3.right * 6f, high + new Vector3(-10f, -1.4f, 0f), 75f);
+            w.TimeOfDay = 0.3f;
+            yield return new WaitForSeconds(5f);
+            yield return CamShot("day_landscape_south", high, high + Vector3.back * 10f + Vector3.down * 2f, 75f);
+            yield return CamShot("day_landscape_west", high, high + Vector3.left * 10f + Vector3.down * 2.5f, 75f);
+
+            // 4. What you see in the headset: hotbar, hearts and armor, looking at the house.
+            gp.TeleportTo(gorillaFeet + Vector3.right * 1.5f + Vector3.up * 0.9f, Quaternion.LookRotation(Vector3.left), false, true);
+            _photoHud = true;
+            yield return new WaitForSeconds(2f);
+            yield return HeadShot("hud_house");
+            // ...and the crafting table with a pickaxe recipe in it.
+            OpenCrafting();
+            var planks = Items.Local(pack, "oak_planks"); var stick = Items.Local(pack, "stick");
+            if (planks != null && stick != null)
+                Gui.PreviewGrid(new ItemStack(planks, 1), new ItemStack(planks, 1), new ItemStack(planks, 1),
+                                ItemStack.None, new ItemStack(stick, 1), ItemStack.None,
+                                ItemStack.None, new ItemStack(stick, 1), ItemStack.None);
+            yield return new WaitForSeconds(1f);
+            yield return HeadShot("crafting_menu");
+            Gui.Close();
+            _photoHud = false;
+            gp.TeleportTo(gorillaFeet + Vector3.up * 0.9f, Quaternion.LookRotation(Vector3.right), false, true);
+
+            // 5. All nine mobs in a cleared field south of spawn.
+            var eye = Feet(sp.x - 3, sp.z - 5) + Vector3.up * 1.5f;
+            ClearPlants(sp.x - 3, sp.z - 14, 9);
+            if (_mobs.TryGetValue(pack, out var defs))
+            {
+                for (int i = 0; i < defs.Count; i++)
+                {
+                    float ang = Mathf.Lerp(-42f, 42f, defs.Count > 1 ? i / (float)(defs.Count - 1) : 0.5f);
+                    var spot = eye + Quaternion.AngleAxis(ang, Vector3.up) * Vector3.back * 4.5f;
+                    var b = w.ToBlock(spot);
+                    int top = w.TopSolid(b.x, b.z, b.y + 8, b.y - 12);
+                    if (top == int.MinValue) continue;
+                    var m = Mob.Spawn(this, w, defs[i], w.Corner(new Vector3Int(b.x, top + 1, b.z)) + new Vector3(s / 2, 0, s / 2));
+                    if (m != null) m.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(eye - m.transform.position, Vector3.up));
+                }
+                yield return null;
+                yield return CamShot("mobs", eye, eye + Vector3.back * 4.5f + Vector3.down * 0.9f, 72f, false);
+                foreach (var m in new List<Mob>(Mob.Live)) Destroy(m.gameObject);
+            }
+
+            // 6. Night: torches, stars, and trouble coming.
+            w.TimeOfDay = 0.78f;
+            yield return new WaitForSeconds(6f);
+            if (defs != null)
+                foreach (var (id, dx, dz) in new[] { ("zombie", 1, -3), ("skeleton", 3, 3), ("creeper", 2, -1), ("spider", 4, -4) })
+                {
+                    var def = defs.Find(d => d.Id == id);
+                    if (def == null) continue;
+                    var m = Mob.Spawn(this, w, def, Feet(sp.x + dx, sp.z + dz));
+                    if (m != null) m.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(gorillaFeet - m.transform.position, Vector3.up));
+                }
+            yield return null;
+            {
+                var dir = Quaternion.Euler(0, -30f, 0) * Vector3.right;
+                var cpos = scene + dir * 6.5f + Vector3.up * 1.4f;
+                yield return CamShot("night_scene", cpos, scene + Vector3.up * 0.8f, 70f);
+                yield return CamShot("night_sky", cpos, scene + Vector3.up * 4f, 78f);
+            }
+            foreach (var m in new List<Mob>(Mob.Live)) Destroy(m.gameObject);
+
+            // Clean up: go home, throw the test world away, put everything back.
+            Travel(null, true);
+            yield return new WaitForSeconds(3f);
+            ThrowAwayTestWorld(pack, w);
+            Plugin.Instance.RenderDistance.Value = oldRadius;
+            Plugin.Instance.PhotoShots.Value = false;
+            _photoMode = false;
+            Plugin.Log.LogInfo("PHOTOS done");
         }
     }
 }

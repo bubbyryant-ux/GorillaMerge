@@ -56,16 +56,17 @@ namespace GorillaMerge
             return b != null ? b.Index : (ushort)0;
         }
 
-        public static Pack Load(string dir)
+        public static Pack Load(string dir) => Parse(File.ReadAllText(Path.Combine(dir, "pack.json")), dir, Path.GetFileName(dir));
+
+        private static Pack Parse(string text, string dir, string id)
         {
-            string file = Path.Combine(dir, "pack.json");
-            var json = JObject.Parse(File.ReadAllText(file));
+            var json = JObject.Parse(text);
             var p = new Pack
             {
                 Dir = dir,
                 Json = json,
-                Id = Path.GetFileName(dir),
-                Name = (string)json["name"] ?? Path.GetFileName(dir),
+                Id = id,
+                Name = (string)json["name"] ?? id,
                 Type = string.Equals((string)json["type"], "map", StringComparison.OrdinalIgnoreCase) ? PackType.Map : PackType.Voxel,
             };
             p.Sky = GameAssets.ParseColor((string)json["sky"], p.Sky);
@@ -106,12 +107,7 @@ namespace GorillaMerge
         public static List<Pack> LoadAll(string packsDir)
         {
             var list = new List<Pack>();
-            if (!Directory.Exists(packsDir))
-            {
-                Plugin.Log.LogWarning("No Packs folder at " + packsDir);
-                return list;
-            }
-            var dirs = Directory.GetDirectories(packsDir);
+            string[] dirs = Directory.Exists(packsDir) ? Directory.GetDirectories(packsDir) : new string[0];
             Array.Sort(dirs, StringComparer.OrdinalIgnoreCase);
             foreach (var dir in dirs)
             {
@@ -126,6 +122,18 @@ namespace GorillaMerge
                 {
                     Plugin.Log.LogError($"Pack in {dir} is broken: {ex.Message}");
                 }
+            }
+            // The Minecraft pack is built into the DLL, so the download is just GorillaMerge.dll.
+            // A Packs\Minecraft folder (for tinkering with it) takes its place.
+            if (!list.Exists(p => p.Id == "Minecraft"))
+            {
+                using (var s = typeof(Pack).Assembly.GetManifestResourceStream("GorillaMerge.Packs.Minecraft.pack.json"))
+                    if (s != null)
+                        using (var r = new StreamReader(s))
+                        {
+                            list.Add(Parse(r.ReadToEnd(), Path.Combine(packsDir, "Minecraft"), "Minecraft"));
+                            Plugin.Log.LogInfo("Pack 'Minecraft' (built in)");
+                        }
             }
             // Minecraft first, it is the main one.
             list.Sort((a, b) => (a.Id == "Minecraft" ? 0 : 1).CompareTo(b.Id == "Minecraft" ? 0 : 1));
